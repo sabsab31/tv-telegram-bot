@@ -4,7 +4,9 @@ import requests
 
 app = Flask(__name__)
 
-# ⚠️ Mets ces valeurs dans Render > Environment (recommandé)
+# ✅ IMPORTANT: Render > Environment doit contenir EXACTEMENT ces noms :
+# TELEGRAM_TOKEN = 123456:ABC...
+# CHAT_ID = 5000....
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
 CHAT_ID = os.getenv("CHAT_ID", "").strip()
 
@@ -14,9 +16,24 @@ def home():
     return "OK - TV webhook Telegram bot running", 200
 
 
+# ✅ Endpoint de test (GET) : vérifie Render -> Telegram sans TradingView
+@app.route("/test", methods=["GET"])
+def test():
+    if not TELEGRAM_TOKEN or not CHAT_ID:
+        return "Missing TELEGRAM_TOKEN or CHAT_ID environment variables.", 500
+
+    tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": "✅ TEST Render -> Telegram OK"}
+
+    try:
+        r = requests.post(tg_url, json=payload, timeout=15)
+        return f"Telegram status={r.status_code} resp={r.text}", 200
+    except Exception as e:
+        return f"Telegram request failed: {str(e)}", 500
+
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    # 1) Log brut pour debug (indispensable)
     raw = request.data.decode("utf-8", errors="replace")
     headers = dict(request.headers)
 
@@ -25,10 +42,8 @@ def webhook():
     print("RAW BODY:", raw)
     print("==========================")
 
-    # 2) Parse JSON sans jamais planter
     data = request.get_json(silent=True)
 
-    # 3) Construire un message robuste (JSON ou texte brut)
     if isinstance(data, dict):
         text = (
             f"📩 TradingView Alert\n"
@@ -44,15 +59,12 @@ def webhook():
             f"📉 Daily DD%: {data.get('daily_dd_pct', '?')}\n"
         )
     else:
-        # Si pas JSON, on envoie le body brut (utile pour diagnostiquer TradingView)
         text = f"📩 TradingView (RAW)\n{raw}"
 
-    # 4) Vérifications de sécurité (évite erreurs silencieuses)
     if not TELEGRAM_TOKEN or not CHAT_ID:
         print("❌ Missing TELEGRAM_TOKEN or CHAT_ID environment variables.")
         return jsonify({"ok": False, "error": "Missing TELEGRAM_TOKEN or CHAT_ID"}), 500
 
-    # 5) Envoi vers Telegram
     tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text}
 
@@ -64,12 +76,10 @@ def webhook():
         print("❌ Telegram request failed:", str(e))
         return jsonify({"ok": False, "error": "Telegram request failed"}), 500
 
-    # 6) Toujours répondre 200 à TradingView si on a traité la requête
     return jsonify({"ok": True}), 200
 
 
 if __name__ == "__main__":
-    # Render fournit PORT automatiquement
     port = int(os.environ.get("PORT", "10000"))
     app.run(host="0.0.0.0", port=port)
 
