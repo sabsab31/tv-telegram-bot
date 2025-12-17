@@ -4,49 +4,60 @@ import requests
 
 app = Flask(__name__)
 
-# ✅ IMPORTANT: Render > Environment doit contenir EXACTEMENT ces noms :
-# TELEGRAM_TOKEN = 123456:ABC...
-# CHAT_ID = 5000....
+# =========================
+# ENV VARS (Render)
+# =========================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
 CHAT_ID = os.getenv("CHAT_ID", "").strip()
 
 
+# =========================
+# HOME (health check)
+# =========================
 @app.route("/", methods=["GET"])
 def home():
     return "OK - TV webhook Telegram bot running", 200
 
 
-# ✅ Endpoint de test (GET) : vérifie Render -> Telegram sans TradingView
+# =========================
+# TEST TELEGRAM (GET)
+# =========================
 @app.route("/test", methods=["GET"])
 def test():
     if not TELEGRAM_TOKEN or not CHAT_ID:
-        return "Missing TELEGRAM_TOKEN or CHAT_ID environment variables.", 500
+        return "❌ Missing TELEGRAM_TOKEN or CHAT_ID", 500
 
     tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": "✅ TEST Render -> Telegram OK"}
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": "✅ TEST OK : Render → Telegram fonctionne"
+    }
 
-    try:
-        r = requests.post(tg_url, json=payload, timeout=15)
-        return f"Telegram status={r.status_code} resp={r.text}", 200
-    except Exception as e:
-        return f"Telegram request failed: {str(e)}", 500
+    r = requests.post(tg_url, json=payload, timeout=15)
+    return f"Telegram status={r.status_code} | resp={r.text}", 200
 
 
+# =========================
+# WEBHOOK TRADINGVIEW
+# =========================
 @app.route("/webhook", methods=["POST"])
 def webhook():
+    # Log brut (ULTRA IMPORTANT)
     raw = request.data.decode("utf-8", errors="replace")
     headers = dict(request.headers)
 
-    print("==== INCOMING WEBHOOK ====")
+    print("===== TRADINGVIEW WEBHOOK =====")
     print("HEADERS:", headers)
     print("RAW BODY:", raw)
-    print("==========================")
+    print("===============================")
 
+    # Parse JSON (sans crash)
     data = request.get_json(silent=True)
 
+    # Construire message Telegram
     if isinstance(data, dict):
         text = (
-            f"📩 TradingView Alert\n"
+            "📩 TradingView Alert\n"
             f"📊 Symbol: {data.get('symbol', '?')}\n"
             f"📌 Side: {data.get('side', '?')}\n"
             f"⏱ TF: {data.get('tf', '?')}\n"
@@ -56,15 +67,18 @@ def webhook():
             f"📏 SL pts: {data.get('sl_points', '?')}\n"
             f"📦 Qty: {data.get('qty', '?')}\n"
             f"⚠️ Risk%: {data.get('risk_pct', '?')}\n"
-            f"📉 Daily DD%: {data.get('daily_dd_pct', '?')}\n"
+            f"📉 Daily DD%: {data.get('daily_dd_pct', '?')}"
         )
     else:
-        text = f"📩 TradingView (RAW)\n{raw}"
+        # Si TradingView envoie du texte brut
+        text = f"📩 TradingView RAW\n{raw}"
 
+    # Vérification env vars
     if not TELEGRAM_TOKEN or not CHAT_ID:
-        print("❌ Missing TELEGRAM_TOKEN or CHAT_ID environment variables.")
-        return jsonify({"ok": False, "error": "Missing TELEGRAM_TOKEN or CHAT_ID"}), 500
+        print("❌ Missing TELEGRAM_TOKEN or CHAT_ID")
+        return jsonify({"ok": False}), 500
 
+    # Envoi Telegram
     tg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text}
 
@@ -73,12 +87,15 @@ def webhook():
         print("TELEGRAM STATUS:", r.status_code)
         print("TELEGRAM RESPONSE:", r.text)
     except Exception as e:
-        print("❌ Telegram request failed:", str(e))
-        return jsonify({"ok": False, "error": "Telegram request failed"}), 500
+        print("❌ Telegram error:", str(e))
+        return jsonify({"ok": False}), 500
 
     return jsonify({"ok": True}), 200
 
 
+# =========================
+# RUN (Render)
+# =========================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "10000"))
     app.run(host="0.0.0.0", port=port)
